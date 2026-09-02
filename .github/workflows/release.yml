@@ -62,7 +62,7 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
+          key: ${{ matrix.target }}-ort-dyn
 
       - name: Build release
         shell: bash
@@ -90,6 +90,23 @@ jobs:
           mkdir -p "${OUT_DIR}/${NAME}"
           cp "${BIN_DIR}/${{ matrix.artifact }}" "${OUT_DIR}/${NAME}/"
           cp LICENSE README.md "${OUT_DIR}/${NAME}/" || true
+          # Windows: ort load-dynamic needs onnxruntime.dll beside the exe
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            shopt -s nullglob
+            for f in "${BIN_DIR}"/*.dll; do
+              cp "$f" "${OUT_DIR}/${NAME}/"
+            done
+            # Fallback: ort.pyke.io download cache
+            if ! compgen -G "${OUT_DIR}/${NAME}/*.dll" > /dev/null; then
+              ORT_ROOT="${LOCALAPPDATA:-$HOME/AppData/Local}/ort.pyke.io"
+              if [ -d "$ORT_ROOT" ]; then
+                DLL=$(find "$ORT_ROOT" -name 'onnxruntime.dll' 2>/dev/null | head -1 || true)
+                if [ -n "${DLL}" ]; then
+                  cp "$DLL" "${OUT_DIR}/${NAME}/"
+                fi
+              fi
+            fi
+          fi
           cd "${OUT_DIR}"
           if [ "${{ matrix.archive }}" = "zip" ]; then
             7z a -tzip "${NAME}.zip" "${NAME}"
