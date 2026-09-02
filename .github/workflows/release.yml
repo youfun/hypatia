@@ -35,11 +35,6 @@ jobs:
             target: aarch64-apple-darwin
             artifact: hypatia
             archive: tar.gz
-          - name: macos-x86_64
-            os: macos-15-intel
-            target: x86_64-apple-darwin
-            artifact: hypatia
-            archive: tar.gz
 
     steps:
       - name: Checkout
@@ -71,13 +66,13 @@ jobs:
 
       - name: Build release
         shell: bash
-        env:
-          CC: ${{ runner.os == 'Windows' && 'clang-cl' || '' }}
         run: |
           set -euo pipefail
+          # Windows: use clang for C only (numkong needs -std=c99).
+          # Leave CXX unset so MSVC cl.exe builds C++ crates (esaxx-rs needs exceptions).
           if [ "${{ runner.os }}" = "Windows" ]; then
-            export CC="clang-cl"
-            export CXX="clang-cl"
+            export CC="clang"
+            unset CXX || true
           fi
           cargo build --release --locked --target "${{ matrix.target }}"
 
