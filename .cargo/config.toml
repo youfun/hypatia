@@ -1,14 +1,12 @@
 # .cargo/config.toml — Cargo build configuration
 # Cross-compilation settings are handled by cargo-zigbuild or cross at build time.
 # This file sets project-level defaults.
+#
+# Do NOT enable +crt-static on Windows here: ort/onnxruntime Windows prebuilts
+# are built against the dynamic MSVC CRT (/MD). Static CRT causes LNK2019
+# unresolved __imp_* symbols when linking libort_sys.
 
 [build]
 # Default to release optimizations even in dev builds for DuckDB/SQLite C++ compilation speed
 # Uncomment if you want faster dev builds at the cost of runtime performance:
 # rustflags = ["-C", "debuginfo=1"]
-
-[target.x86_64-pc-windows-msvc]
-rustflags = ["-C", "target-feature=+crt-static"]
-
-[target.aarch64-pc-windows-msvc]
-rustflags = ["-C", "target-feature=+crt-static"]
