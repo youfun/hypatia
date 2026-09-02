@@ -1,0 +1,122 @@
+name: Release builds
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: hypatia
+            archive: tar.gz
+          - name: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: hypatia.exe
+            archive: zip
+          - name: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: hypatia
+            archive: tar.gz
+          - name: macos-x86_64
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+            artifact: hypatia
+            archive: tar.gz
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            pkg-config libssl-dev build-essential cmake clang
+
+      - name: Install Windows LLVM (for C deps like numkong)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install llvm -y --no-progress
+          echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build release
+        shell: bash
+        env:
+          CC: ${{ runner.os == 'Windows' && 'clang-cl' || '' }}
+        run: |
+          set -euo pipefail
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            export CC="clang-cl"
+            export CXX="clang-cl"
+          fi
+          cargo build --release --locked --target "${{ matrix.target }}"
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_REF}" != refs/tags/* ]]; then
+            VERSION="sha-${GITHUB_SHA::7}"
+          fi
+          OUT_DIR="dist"
+          BIN_DIR="target/${{ matrix.target }}/release"
+          NAME="hypatia-${VERSION}-${{ matrix.target }}"
+          mkdir -p "${OUT_DIR}/${NAME}"
+          cp "${BIN_DIR}/${{ matrix.artifact }}" "${OUT_DIR}/${NAME}/"
+          cp LICENSE README.md "${OUT_DIR}/${NAME}/" || true
+          cd "${OUT_DIR}"
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            7z a -tzip "${NAME}.zip" "${NAME}"
+            echo "ASSET=${NAME}.zip" >> "$GITHUB_ENV"
+          else
+            tar -czf "${NAME}.tar.gz" "${NAME}"
+            echo "ASSET=${NAME}.tar.gz" >> "$GITHUB_ENV"
+          fi
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ASSET }}
+          path: dist/${{ env.ASSET }}
+          if-no-files-found: error
+
+      - name: Upload to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/${{ env.ASSET }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
